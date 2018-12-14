@@ -3,18 +3,18 @@ import matplotlib.pyplot as plt
 import cosmology as cc
 import scipy.integrate as integ
 
-wls = 1.0e-7 #step size
+wls = 1.0e-7 #wavelength step size
 scale = 1.145726382e41 #assuming peak B-band mag of -19.3
 
 #print 'bolometric luminosity = ',wls*sum(flux*scale)*4*np.pi*1.0e7,' J/s' #from erg/s/cm/ster to J/s
 
 a = cc.cosmology(0.27,0.0,-1.0,0.0,0.0476,0.7,2.726,0.8,0.96,np.log10(8.0),1.0) #change to 737 cosmology
 
-h=0.7
+h=0.7 #hubble parameter
 
-z0=np.linspace(0.01,1.5,150) #avoiding zero redshift
+z0=np.linspace(2.0,0.05,40) #avoiding zero redshift; creating redshift array
 
-def SNR(z):
+def SNR(z): #calculating supernova rate as function of redshift
 
     t=28.0/(1.+(1.+z)**2)
 
@@ -24,22 +24,55 @@ def SNR(z):
     f2 = lambda tD:tD**(-1.08)
     i2 = integ.quad(f2, 0.1, 14.)
 
-    SN=(0.04*0.032)*i1[0]/i2[0] #try to make it work with 1.28e-3
+    SN=(0.04*0.032)*i1[0]/i2[0] #try to make it work with 1.28e-3 instead of 0.04*0.032
     
     return SN
 
-nr = np.zeros([150])
+def detect(day,z,wls,scale,success):
+            if day>=0 and day<10: #supernova epoch spectral template file selection out of day -19 to day 85 post-explosion
+               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day00"+str(day)+".dat")
+            elif day>=10 and day<86:
+               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day0"+str(day)+".dat")
+            elif day>=-19 and day<-9:
+               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day"+str(day)+".dat")
+            elif day>=-9 and day<0:
+               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day-0"+str(-day)+".dat")
+            
+            wl=data[:,0]*(1+z) #cosmological length dilation
+            flux=data[:,1]/(1+z) #cosmological time dilation
+            wl_g=[]
+            flux_g=[]
+            m_g=30.0 #zero value for g-band apparent magnitude
+            g_adjust=0.1 #used in absolute magnitude formula and based on scaling of the Hsiao spectral template
+
+            for l in range(len(wl)):
+                if wl[l]>=4000 and wl[l]<=5520: #LSST g-band
+                   wl_g.append(wl[l])
+                   flux_g.append(flux[l])
+
+            if sum(flux_g)!=0:
+               M_g=71.1974-g_adjust-2.5*np.log10(wls*sum(flux_g)*scale*4*np.pi*1.0e7) #from wikipedia
+               m_g=M_g+5*np.log10(a.Dlofz(z)*100000)-5 #distance modulus relation
+               
+               if m_g<=26.2: #g-band limiting apparent magnitude
+                  success+=1
+               #print day,M_g,m_g,success
+            return success
+
+nr = np.zeros([40]) #initializing array for number of supernova (occuring) as function of redshift
 
 n=0
 
-for i in range(150): #index for redshift
-    nr[i]=0.0002327*(4/3)*np.pi*(a.Dcofz(z0[i]+0.01)**3-a.Dcofz(z0[i])**3)*SNR(z0[i])
+zstep=0.05 #related to redshift array definition
+
+for i in range(40): #index for redshift
+    nr[i]=0.0002327*(4/3)*np.pi*(a.Dcofz(z0[i]+zstep)**3-a.Dcofz(z0[i])**3)*SNR(z0[i])
     print z0[i], nr[i]
     success=0
 
     flag=1
     fl=0
-    for j in range(int(365*(1+z0[i]))): #index for day
+    for j in range(int(365*(1+z0[i]))): #index for day; generating observation dates
         if flag==0:
            if (j-fl)%17!=0: #17th day; 17.5 days cadence
               continue
@@ -52,44 +85,28 @@ for i in range(150): #index for redshift
            else:
               flag=0
         
-        for k in range(success,j):
-            day=int(k/(1+z0[i]))-19 #look-back epoch OR apparent phase
-            if day>=0 and day<10:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day00"+str(day)+".dat")
-            elif day>=10 and day<86:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day0"+str(day)+".dat")
-            elif day>=-19 and day<-9:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day"+str(day)+".dat")
-            elif day>=-9 and day<0:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day-0"+str(-day)+".dat")
-            else:
+        if j<=365:
+          for k in range(success,j):
+            day=int((j-k)/(1+z0[i]))-19 #look-back epoch OR apparent phase
+            if day>=86:
                continue
+            success=detect(day,z0[i],wls,scale,success) #calling function detect()
+            
+        else:
+          for k in range(success,365):
+            day=int((j-k)/(1+z0[i]))-19 #look-back epoch OR apparent phase
+            if day>=86:
+               continue
+            success=detect(day,z0[i],wls,scale,success) #calling function detect()
 
-            wl=data[:,0]*(1+z0[i]) #length dilation
-            flux=data[:,1]/(1+z0[i]) #time dilation
-            wl_g=[]
-            flux_g=[]
-            m_g=30
-            for l in range(len(wl)):
-                if wl[l]>=4000 and wl[l]<=5520: #LSST g-band
-                   wl_g.append(wl[l])
-                   flux_g.append(flux[l])
-
-            if sum(flux_g)!=0:
-               M_g=71.1974-0.1-2.5*np.log10(wls*sum(flux_g)*scale*4*np.pi*1.0e7)
-               m_g=M_g+5*np.log10(a.Dlofz(z0[i])*100000)-5
-               
-               if m_g<=26.2: #g-band limiting magnitude
-                  success+=1
-               #print M_g,m_g,success
-    nr[i]=success/(365*(1+z0[i]))*nr[i]
+    nr[i]=(success/365.0)*nr[i] #array for number of supernova (detected in g-band) as function of redshift
     n+=nr[i]
     print success,nr[i]
 
    
 plt.plot(z0,nr,color='k')
 plt.xlabel('redshift, $z$',size=12)
-plt.ylabel('number of SNe Ia detected per year by LSST',size=12)
+plt.ylabel('number of SNe Ia detected in 1 year \n in g-filter by LSST in a given FOV',size=12)
 
 print n
 
