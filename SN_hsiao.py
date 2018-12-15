@@ -3,8 +3,21 @@ import matplotlib.pyplot as plt
 import cosmology as cc
 import scipy.integrate as integ
 
-wls = 1.0e-7 #wavelength step size
-scale = 1.145726382e41 #assuming peak B-band mag of -19.3
+on = -19
+off = 86
+
+data0=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day000.dat")
+wl_data=data0[:,0]
+flux_data=np.zeros((wl_data.size,(off-on)))
+for f in range(on,off):
+    data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day%03d.dat" %f)
+    flux_data[:,f+19]=data[:,1]
+
+#print flux_data[:,0]
+
+wls = 1.0e-7 #wavelength step size in cm
+scale = 1.145726382e55 #assuming peak B-band mag of -19.3
+erg_joule=1.0e-7 #erg-to-Joule conversion factor
 
 #print 'bolometric luminosity = ',wls*sum(flux*scale)*4*np.pi*1.0e7,' J/s' #from erg/s/cm/ster to J/s
 
@@ -12,7 +25,7 @@ a = cc.cosmology(0.27,0.0,-1.0,0.0,0.0476,0.7,2.726,0.8,0.96,np.log10(8.0),1.0) 
 
 h=0.7 #hubble parameter
 
-z0=np.linspace(2.0,0.05,40) #avoiding zero redshift; creating redshift array
+z0=np.linspace(0.01,2.0,200) #avoiding zero redshift; creating redshift array
 
 def SNR(z): #calculating supernova rate as function of redshift
 
@@ -28,18 +41,9 @@ def SNR(z): #calculating supernova rate as function of redshift
     
     return SN
 
-def detect(day,z,wls,scale,success):
-            if day>=0 and day<10: #supernova epoch spectral template file selection out of day -19 to day 85 post-explosion
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day00"+str(day)+".dat")
-            elif day>=10 and day<86:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day0"+str(day)+".dat")
-            elif day>=-19 and day<-9:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day"+str(day)+".dat")
-            elif day>=-9 and day<0:
-               data=np.genfromtxt("/home/dumbscholar/Astro_codes/supernu/analysis/hsiao07/day-0"+str(-day)+".dat")
-            
-            wl=data[:,0]*(1+z) #cosmological length dilation
-            flux=data[:,1]/(1+z) #cosmological time dilation
+def detect(day,z,wls,scale,success,lumdis,data_flux,data_wl,k):
+            wl=data_wl*(1+z) #cosmological length dilation
+            flux=data_flux/(1+z) #cosmological time dilation
             wl_g=[]
             flux_g=[]
             m_g=30.0 #zero value for g-band apparent magnitude
@@ -51,24 +55,25 @@ def detect(day,z,wls,scale,success):
                    flux_g.append(flux[l])
 
             if sum(flux_g)!=0:
-               M_g=71.1974-g_adjust-2.5*np.log10(wls*sum(flux_g)*scale*4*np.pi*1.0e7) #from wikipedia
-               m_g=M_g+5*np.log10(a.Dlofz(z)*100000)-5 #distance modulus relation
+               M_g=71.1974-g_adjust-2.5*np.log10(wls*sum(flux_g)*scale*4*np.pi*erg_joule) #from wikipedia
+               m_g=M_g+5*np.log10(lumdis*100000)-5 #distance modulus relation
                
                if m_g<=26.2: #g-band limiting apparent magnitude
                   success+=1
-               #print day,M_g,m_g,success
+               #print day,M_g,m_g,success,k
             return success
 
-nr = np.zeros([40]) #initializing array for number of supernova (occuring) as function of redshift
+nr = np.zeros([200]) #initializing array for number of supernova (occuring) as function of redshift
 
 n=0
 
-zstep=0.05 #related to redshift array definition
+zstep=0.01 #related to redshift array definition
 
-for i in range(40): #index for redshift
-    nr[i]=0.0002327*(4/3)*np.pi*(a.Dcofz(z0[i]+zstep)**3-a.Dcofz(z0[i])**3)*SNR(z0[i])
+for i in range(200): #index for redshift
+    nr[i]=0.0002327*(4/3)*np.pi*(a.Dcofz(z0[i]+zstep)**3-a.Dcofz(z0[i])**3)*SNR(z0[i])/(h**3) #cosmology code distance is (h Mpc^-3)
     print z0[i], nr[i]
     success=0
+    lumdis=a.Dlofz(z0[i])/h #in Mpc
 
     flag=1
     fl=0
@@ -87,17 +92,19 @@ for i in range(40): #index for redshift
         
         if j<=365:
           for k in range(success,j):
-            day=int((j-k)/(1+z0[i]))-19 #look-back epoch OR apparent phase
+            day=int((j-k)/(1+z0[i])) #look-back epoch OR apparent phase
             if day>=86:
                continue
-            success=detect(day,z0[i],wls,scale,success) #calling function detect()
+            data_flux=flux_data[:,day]
+            success=detect(day,z0[i],wls,scale,success,lumdis,data_flux,wl_data,k) #calling function detect()
             
         else:
           for k in range(success,365):
-            day=int((j-k)/(1+z0[i]))-19 #look-back epoch OR apparent phase
+            day=int((j-k)/(1+z0[i])) #look-back epoch OR apparent phase
             if day>=86:
                continue
-            success=detect(day,z0[i],wls,scale,success) #calling function detect()
+            data_flux=flux_data[:,day]
+            success=detect(day,z0[i],wls,scale,success,lumdis,data_flux,wl_data,k) #calling function detect()
 
     nr[i]=(success/365.0)*nr[i] #array for number of supernova (detected in g-band) as function of redshift
     n+=nr[i]
