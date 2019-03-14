@@ -1,4 +1,4 @@
-# Unlensed-Type-Ia-rate
+# LSST-Type-Ia-rate
 
 SFR.py is for Star Formation Rate\
 SNRL.py is for SNe Ia rate (z<=4) & Luminosity function calculation\
